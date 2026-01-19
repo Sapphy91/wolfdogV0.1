@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>狼狗杀游戏助手</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Arial', sans-serif; background: #2c3e50; color: white; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .room-id { background: #34495e; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .players-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 20px 0; }
+        .player-card { background: #3498db; padding: 15px; border-radius: 10px; text-align: center; position: relative; min-height: 120px; }
+        .player-card.empty { background: #2c3e50; border: 2px dashed #7f8c8d; }
+        .player-card.dead { background: #7f8c8d; opacity: 0.7; }
+        .player-card.challenger { background: #e74c3c; }
+        .player-card.opponent { background: #f39c12; }
+        .player-card.self { border: 3px solid #2ecc71; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; background: #ecf0f1; margin: 0 auto 10px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+        button { padding: 10px 20px; background: #2ecc71; border: none; border-radius: 5px; color: white; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #95a5a6; }
+        button.small { padding: 5px 10px; font-size: 12px; }
+        .settings { background: #34495e; padding: 15px; border-radius: 10px; margin: 20px 0; }
+        .setting-item { margin: 10px 0; }
+        .setting-item label { display: inline-block; width: 150px; }
+        .setting-item input { padding: 5px; width: 60px; }
+        .log { background: #1a252f; padding: 10px; border-radius: 5px; height: 200px; overflow-y: auto; margin-top: 20px; }
+        .faction-badge { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; }
+        .wolf { background: #c0392b; }
+        .dog { background: #2980b9; }
+        .neutral { background: #f1c40f; }
+        .role-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .role-card { background: white; color: #2c3e50; padding: 30px; border-radius: 15px; text-align: center; max-width: 400px; width: 90%; }
+        .role-image { width: 200px; height: 300px; background: #bdc3c7; margin: 0 auto 20px; border-radius: 10px; }
+        .tab-container { display: flex; border-bottom: 1px solid #7f8c8d; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 3px solid transparent; }
+        .tab.active { border-bottom-color: #2ecc71; }
+    </style>
+</head>
+<body>
+    <div class="tab-container">
+        <div class="tab active" onclick="switchTab('host')">房主界面</div>
+        <div class="tab" onclick="switchTab('player')">玩家界面</div>
+        <div class="tab" onclick="switchTab('admin')">管理界面</div>
+    </div>
+
+    <!-- 房主界面 -->
+    <div id="host-tab" class="tab-content">
+        <div class="header">
+            <h1>🐺 狼狗杀 - 房主控制台 🐕</h1>
+            <div class="room-id">房间号: <span id="roomCode">WD-2024</span> | 分享链接: <input type="text" id="roomLink" value="" readonly style="width: 300px;"> <button class="small" onclick="copyLink()">复制链接</button></div>
+            <div>房主: <span id="hostName">你</span></div>
+        </div>
+
+        <div class="settings">
+            <h3>游戏设置</h3>
+            <div class="setting-item">
+                <label>总玩家数:</label>
+                <input type="number" id="totalPlayers" min="5" max="10" value="6" onchange="updatePlayerSlots()">
+            </div>
+            <div class="setting-item">
+                <label>狼派人数:</label>
+                <input type="number" id="wolfCount" min="1" max="3" value="2">
+            </div>
+            <div class="setting-item">
+                <label>狗派人数:</label>
+                <input type="number" id="dogCount" min="3" max="5" value="3">
+            </div>
+            <div class="setting-item">
+                <label>中立人数:</label>
+                <input type="number" id="neutralCount" min="1" max="2" value="1">
+            </div>
+            <div class="setting-item">
+                <button onclick="applyPreset('6人经典')">6人经典配置</button>
+                <button onclick="applyPreset('8人局')">8人局</button>
+                <button onclick="applyPreset('10人局')">10人局</button>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button onclick="startGame()" id="startBtn">开始游戏</button>
+            <button onclick="setChallenger()" id="challengerBtn" disabled>设置擂主</button>
+            <button onclick="setOpponent()" id="opponentBtn" disabled>设置对手</button>
+            <button onclick="challengerWins()" id="winBtn" disabled>擂主胜利</button>
+            <button onclick="opponentWins()" id="loseBtn" disabled>对手胜利</button>
+            <button onclick="resetGame()">重新开始</button>
+        </div>
+
+        <h3>玩家列表 (点击头像设置状态)</h3>
+        <div class="players-grid" id="hostPlayersGrid">
+            <!-- 动态生成 -->
+        </div>
+
+        <h3>游戏状态</h3>
+        <div class="log" id="gameLog">
+            <div>等待游戏开始...</div>
+        </div>
+    </div>
+
+    <!-- 玩家界面 -->
+    <div id="player-tab" class="tab-content" style="display: none;">
+        <div class="header">
+            <h1>🐺 狼狗杀 - 玩家界面 🐕</h1>
+            <div>房间号: <span id="playerRoomCode">WD-2024</span></div>
+            <div>玩家: <span id="playerName">未加入</span></div>
+        </div>
+
+        <div id="playerWaiting">
+            <h3>等待房间</h3>
+            <p>等待房主开始游戏...</p>
+            <div class="players-grid" id="playerWaitingGrid">
+                <!-- 玩家列表 -->
+            </div>
+        </div>
+
+        <div id="playerGame" style="display: none;">
+            <h3>你的身份</h3>
+            <div class="player-card self">
+                <div class="avatar"></div>
+                <div id="myName">玩家</div>
+                <div id="myRole">角色: 等待分配</div>
+                <div id="myFaction">阵营: 等待分配</div>
+                <div id="myStatus">状态: 存活</div>
+            </div>
+
+            <button onclick="viewMyCard()" style="margin: 10px 0;">查看我的角色卡</button>
+
+            <h3>狼队友 (仅狼派可见)</h3>
+            <div class="players-grid" id="wolfTeammatesGrid" style="display: none;">
+                <!-- 狼队友列表 -->
+            </div>
+
+            <h3>存活玩家</h3>
+            <div class="players-grid" id="playerAliveGrid">
+                <!-- 存活玩家列表 -->
+            </div>
+
+            <h3>淘汰玩家</h3>
+            <div class="players-grid" id="playerDeadGrid">
+                <!-- 淘汰玩家列表 -->
+            </div>
+
+            <h3>战斗记录</h3>
+            <div class="log" id="playerLog">
+                <!-- 与房主同步 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 管理员界面 -->
+    <div id="admin-tab" class="tab-content" style="display: none;">
+        <div class="header">
+            <h1>🐺 狼狗杀 - 管理后台 🐕</h1>
+            <div>管理员: admin</div>
+            <button onclick="saveAdminData()" style="background: #9b59b6;">保存修改</button>
+        </div>
+
+        <div class="settings">
+            <h3>角色管理</h3>
+            <div id="rolesList">
+                <!-- 角色列表 -->
+            </div>
+            <button onclick="addNewRole()">添加新角色</button>
+
+            <h3>游戏背景</h3>
+            <div>
+                <input type="text" id="bgImageUrl" placeholder="背景图URL" style="width: 300px;">
+                <button onclick="previewBg()">预览</button>
+            </div>
+
+            <h3>音效管理</h3>
+            <div>
+                <label>游戏开始音效:</label>
+                <input type="text" id="soundStart" placeholder="音效URL">
+            </div>
+        </div>
+    </div>
+
+    <!-- 角色卡片模态框 -->
+    <div class="role-modal" id="roleModal" style="display: none;">
+        <div class="role-card">
+            <div class="role-image" id="roleImg"></div>
+            <h2 id="roleName">角色名称</h2>
+            <p id="roleFaction">阵营：</p>
+            <p id="roleSkill">技能：</p>
+            <button onclick="closeRoleModal()" style="margin-top: 20px;">关闭</button>
+        </div>
+    </div>
+
+    <script>
+        // 游戏核心数据
+        const gameData = {
+            roomId: 'WD-' + Date.now().toString().slice(-4),
+            hostId: 'host_' + Math.random().toString(36).substr(2, 9),
+            players: [],
+            settings: {
+                totalPlayers: 6,
+                wolfCount: 2,
+                dogCount: 3,
+                neutralCount: 1
+            },
+            gameStarted: false,
+            challenger: null,
+            opponent: null,
+            log: []
+        };
+
+        // 角色池
+        const rolePool = [
+            // 狼派
+            { id: 1, name: '大哥', faction: 'wolf', skill: '猜码胜利时败者喝一杯，连续两胜直接击杀一名玩家', color: '#c0392b' },
+            { id: 2, name: '掠夺者', faction: 'wolf', skill: '第一次胜利后继续猜码，连胜则淘汰对方并夺取技能', color: '#c0392b' },
+            { id: 3, name: '暗杀者', faction: 'wolf', skill: '胜利时淘汰对手且不亮身份牌', color: '#c0392b' },
+            { id: 4, name: '蔡文姬', faction: 'wolf', skill: '失败时令对手技能永久失效', color: '#c0392b' },
+            // 狗派
+            { id: 5, name: '龟男', faction: 'dog', skill: '失败时给对手一次免死机会', color: '#2980b9' },
+            { id: 6, name: '护士', faction: 'dog', skill: '任意玩家被淘汰时可选择复活', color: '#2980b9' },
+            { id: 7, name: '先驱', faction: 'dog', skill: '首任擂主，可查验一人阵营', color: '#2980b9' },
+            { id: 8, name: '猎人', faction: 'dog', skill: '被淘汰时指定一名玩家一同淘汰', color: '#2980b9' },
+            // 中立
+            { id: 9, name: '呆呆鸟', faction: 'neutral', skill: '第一个被淘汰直接获胜', color: '#f1c40f' },
+            { id: 10, name: '小丑', faction: 'neutral', skill: '首次猜码胜负反转', color: '#f1c40f' }
+        ];
+
+        // 初始化
+        function init() {
+            // 生成房间链接
+            const link = window.location.href.split('?')[0] + '?room=' + gameData.roomId;
+            document.getElementById('roomLink').value = link;
+            document.getElementById('roomCode').textContent = gameData.roomId;
+            document.getElementById('playerRoomCode').textContent = gameData.roomId;
+
+            // 初始化玩家列表（只有房主自己）
+            gameData.players = [
+                { 
+                    id: gameData.hostId, 
+                    name: '房主', 
+                    isHost: true,
+                    role: null,
+                    faction: null,
+                    status: 'alive',
+                    isJoined: true
+                }
+            ];
+            
+            // 添加空位
+            updatePlayerSlots();
+            
+            // 生成分享链接
+            updateRoomLink();
+            
+            // 加载保存的数据
+            loadSavedData();
+        }
+
+        // 更新玩家空位
+        function updatePlayerSlots() {
+            const total = parseInt(document.getElementById('totalPlayers').value);
+            gameData.settings.totalPlayers = total;
+            
+            // 清空并重新生成
+            const hostGrid = document.getElementById('hostPlayersGrid');
+            hostGrid.innerHTML = '';
+            
+            const playerGrid = document.getElementById('playerWaitingGrid');
+            playerGrid.innerHTML = '';
+            
+            // 确保房主在第一位
+            gameData.players = gameData.players.filter(p => p.isHost);
+            
+            // 添加空位
+            for (let i = 1; i < total; i++) {
+                gameData.players.push({
+                    id: `empty_${i}`,
+                    name: `空位 ${i}`,
+                    isHost: false,
+                    role: null,
+                    faction: null,
+                    status: 'waiting',
+                    isJoined: false
+                });
+            }
+            
+            renderHostPlayers();
+            renderPlayerWaiting();
+        }
+
+        // 渲染房主视角玩家列表
+        function renderHostPlayers() {
+            const grid = document.getElementById('hostPlayersGrid');
+            grid.innerHTML = '';
+            
+            gameData.players.forEach((player, index) => {
+                const card = document.createElement('div');
+                let cardClass = 'player-card';
+                
+                if (!player.isJoined) cardClass += ' empty';
+                if (player.status === 'dead') cardClass += ' dead';
+                if (player.id === gameData.challenger) cardClass += ' challenger';
+                if (player.id === gameData.opponent) cardClass += ' opponent';
+                
+                card.className = cardClass;
+                card.innerHTML = `
+                    <div class="avatar"></div>
+                    <div>${player.name}</div>
+                    ${player.status === 'dead' ? '<div style="font-size:11px;color:#e74c3c;">❌ 淘汰</div>' : ''}
+                    ${player.status === 'alive' ? '<div style="font-size:11px;color:#2ecc71;">✅ 存活</div>' : ''}
+                    <div style="font-size:10px;margin-top:5px;">点击操作</div>
+                `;
+                
+                card.onclick = () => selectPlayer(player.id);
+                grid.appendChild(card);
+            });
+        }
+
+        // 渲染玩家等待界面
+        function renderPlayerWaiting() {
+            const grid = document.getElementById('playerWaitingGrid');
+            grid.innerHTML = '';
+            
+            gameData.players.forEach(player => {
+                if (player.isJoined) {
+                    const card = document.createElement('div');
+                    card.className = 'player-card';
+                    card.innerHTML = `
+                        <div class="avatar"></div>
+                        <div>${player.name}</div>
+                        ${player.isHost ? '<div style="font-size:11px;">👑 房主</div>' : '<div style="font-size:11px;">玩家</div>'}
+                    `;
+                    grid.appendChild(card);
+                }
+            });
+        }
+
+        // 选择玩家（房主操作）
+        function selectPlayer(playerId) {
+            const player = gameData.players.find(p => p.id === playerId);
+            if (!player || player.status === 'dead' || !player.isJoined) return;
+            
+            // 根据当前状态选择操作
+            if (!gameData.challenger) {
+                gameData.challenger = playerId;
+                logMessage(`设置 ${player.name} 为擂主`);
+            } else if (!gameData.opponent && playerId !== gameData.challenger) {
+                gameData.opponent = playerId;
+                logMessage(`设置 ${player.name} 为对手，对决开始！`);
+                document.getElementById('winBtn').disabled = false;
+                document.getElementById('loseBtn').disabled = false;
+            }
+            
+            renderHostPlayers();
+            updatePlayerViews();
+        }
+
+        // 开始游戏
+        function startGame() {
+            const wolfCount = parseInt(document.getElementById('wolfCount').value);
+            const dogCount = parseInt(document.getElementById('dogCount').value);
+            const neutralCount = parseInt(document.getElementById('neutralCount').value);
+            
+            // 验证人数
+            if (wolfCount + dogCount + neutralCount !== gameData.settings.totalPlayers) {
+                alert(`总人数不匹配！请检查设置。\n狼${wolfCount} + 狗${dogCount} + 中立${neutralCount} = ${wolfCount + dogCount + neutralCount}\n但总玩家数是 ${gameData.settings.totalPlayers}`);
+                return;
+            }
+            
+            // 分配角色
+            assignRoles(wolfCount, dogCount, neutralCount);
+            
+            gameData.gameStarted = true;
+            logMessage(`游戏开始！配置：狼${wolfCount} 狗${dogCount} 中立${neutralCount}`);
+            
+            // 更新按钮状态
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('challengerBtn').disabled = false;
+            document.getElementById('opponentBtn').disabled = false;
+            
+            // 切换到玩家界面显示游戏状态
+            switchTab('player');
+            updatePlayerViews();
+        }
+
+        // 分配角色
+        function assignRoles(wolfCount, dogCount, neutralCount) {
+            // 过滤出已加入的玩家
+            const joinedPlayers = gameData.players.filter(p => p.isJoined);
+            
+            // 准备角色池
+            let rolesToAssign = [];
+            
+            // 狼派角色
+            const wolfRoles = rolePool.filter(r => r.faction === 'wolf');
+            for (let i = 0; i < wolfCount; i++) {
+                rolesToAssign.push(wolfRoles[i % wolfRoles.length]);
+            }
+            
+            // 狗派角色
+            const dogRoles = rolePool.filter(r => r.faction === 'dog');
+            for (let i = 0; i < dogCount; i++) {
+                rolesToAssign.push(dogRoles[i % dogRoles.length]);
+            }
+            
+            // 中立角色
+            const neutralRoles = rolePool.filter(r => r.faction === 'neutral');
+            for (let i = 0; i < neutralCount; i++) {
+                rolesToAssign.push(neutralRoles[i % neutralRoles.length]);
+            }
+            
+            // 打乱顺序
+            rolesToAssign = shuffleArray(rolesToAssign);
+            
+            // 分配给玩家
+            joinedPlayers.forEach((player, index) => {
+                if (index < rolesToAssign.length) {
+                    player.role = rolesToAssign[index].name;
+                    player.faction = rolesToAssign[index].faction;
+                    player.skill = rolesToAssign[index].skill;
+                    player.color = rolesToAssign[index].color;
+                }
+            });
+        }
+
+        // 擂台胜利
+        function challengerWins() {
+            if (!gameData.opponent) return;
+            
+            const challenger = gameData.players.find(p => p.id === gameData.challenger);
+            const opponent = gameData.players.find(p => p.id === gameData.opponent);
+            
+            opponent.status = 'dead';
+            logMessage(`${challenger.name} 猜码胜利！${opponent.name} 被淘汰`);
+            
+            // 重置对手，擂主继续
+            gameData.opponent = null;
+            
+            checkGameEnd();
+            renderHostPlayers();
+            updatePlayerViews();
+        }
+
+        // 对手胜利
+        function opponentWins() {
+            if (!gameData.opponent) return;
+            
+            const challenger = gameData.players.find(p => p.id === gameData.challenger);
+            const opponent = gameData.players.find(p => p.id === gameData.opponent);
+            
+            challenger.status = 'dead';
+            logMessage(`${opponent.name} 猜码胜利！${challenger.name} 被淘汰`);
+            
+            // 对手成为新擂主
+            gameData.challenger = gameData.opponent;
+            gameData.opponent = null;
+            
+            checkGameEnd();
+            renderHostPlayers();
+            updatePlayerViews();
+        }
+
+        // 检查游戏结束
+        function checkGameEnd() {
+            const alivePlayers = gameData.players.filter(p => p.status === 'alive' && p.isJoined);
+            const factions = [...new Set(alivePlayers.map(p => p.faction))];
+            
+            if (factions.length === 1 && factions[0]) {
+                const factionNames = { wolf: '狼派', dog: '狗派', neutral: '中立' };
+                logMessage(`🎉 游戏结束！${factionNames[factions[0]]} 获胜！`);
+                
+                document.getElementById('winBtn').disabled = true;
+                document.getElementById('loseBtn').disabled = true;
+            }
+        }
+
+        // 更新所有玩家视图
+        function updatePlayerViews() {
+            // 更新玩家界面
+            if (gameData.gameStarted) {
+                document.getElementById('playerWaiting').style.display = 'none';
+                document.getElementById('playerGame').style.display = 'block';
+                
+                // 假设当前查看的是第一个玩家（非房主）
+                const player = gameData.players.find(p => !p.isHost && p.isJoined);
+                if (player) {
+                    document.getElementById('myName').textContent = player.name;
+                    document.getElementById('myRole').textContent = `角色: ${player.role || '未分配'}`;
+                    document.getElementById('myFaction').textContent = `阵营: ${player.faction || '未分配'}`;
+                    
+                    // 如果是狼派，显示队友
+                    const wolfTeammatesGrid = document.getElementById('wolfTeammatesGrid');
+                    if (player.faction === 'wolf') {
+                        wolfTeammatesGrid.style.display = 'block';
+                        const teammates = gameData.players.filter(p => 
+                            p.faction === 'wolf' && p.id !== player.id && p.isJoined
+                        );
+                        
+                        wolfTeammatesGrid.innerHTML = '';
+                        teammates.forEach(teammate => {
+                            const card = document.createElement('div');
+                            card.className = 'player-card';
+                            card.innerHTML = `
+                                <div class="avatar" style="background: ${teammate.color || '#c0392b'}"></div>
+                                <div>${teammate.name}</div>
+                                <div style="font-size:11px;">${teammate.role}</div>
+                                <button class="small" onclick="alert('技能: ${teammate.skill || '无'}')">查看技能</button>
+                            `;
+                            wolfTeammatesGrid.appendChild(card);
+                        });
+                    } else {
+                        wolfTeammatesGrid.style.display = 'none';
+                    }
+                    
+                    // 更新存活和淘汰列表
+                    updatePlayerAliveDeadLists();
+                }
+            }
+            
+            // 同步日志
+            const playerLog = document.getElementById('playerLog');
+            playerLog.innerHTML = document.getElementById('gameLog').innerHTML;
+        }
+
+        // 更新玩家存活/淘汰列表
+        function updatePlayerAliveDeadLists() {
+            const aliveGrid = document.getElementById('playerAliveGrid');
+            const deadGrid = document.getElementById('playerDeadGrid');
+            
+            aliveGrid.innerHTML = '';
+            deadGrid.innerHTML = '';
+            
+            gameData.players.forEach(player => {
+                if (!player.isJoined) return;
+                
+                const card = document.createElement('div');
+                card.className = `player-card ${player.status === 'dead' ? 'dead' : ''}`;
+                card.innerHTML = `
+                    <div class="avatar"></div>
+                    <div>${player.name}</div>
+                    ${player.status === 'alive' ? '<div style="font-size:11px;color:#2ecc71;">✅ 存活</div>' : ''}
+                    ${player.status === 'dead' ? '<div style="font-size:11px;color:#e74c3c;">❌ 淘汰</div>' : ''}
+                `;
+                
+                if (player.status === 'alive') {
+                    aliveGrid.appendChild(card);
+                } else {
+                    deadGrid.appendChild(card);
+                }
+            });
+        }
+
+        // 应用预设
+        function applyPreset(presetName) {
+            const presets = {
+                '6人经典': { total: 6, wolf: 2, dog: 3, neutral: 1 },
+                '8人局': { total: 8, wolf: 2, dog: 4, neutral: 2 },
+                '10人局': { total: 10, wolf: 3, dog: 5, neutral: 2 }
+            };
+            
+            const preset = presets[presetName];
+            if (preset) {
+                document.getElementById('totalPlayers').value = preset.total;
+                document.getElementById('wolfCount').value = preset.wolf;
+                document.getElementById('dogCount').value = preset.dog;
+                document.getElementById('neutralCount').value = preset.neutral;
+                
+                updatePlayerSlots();
+                logMessage(`已应用预设: ${presetName}`);
+            }
+        }
+
+        // 日志
+        function logMessage(message) {
+            const logDiv = document.getElementById('gameLog');
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            // 保存到游戏数据
+            gameData.log.push(entry.textContent);
+            saveGameData();
+        }
+
+        // 切换标签页
+        function switchTab(tabName) {
+            // 隐藏所有标签页
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.style.display = 'none';
+            });
+            
+            // 移除所有active类
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示目标标签页
+            document.getElementById(tabName + '-tab').style.display = 'block';
+            
+            // 激活对应标签
+            document.querySelectorAll('.tab').forEach(tab => {
+                if (tab.textContent.includes(tabName === 'host' ? '房主' : tabName === 'player' ? '玩家' : '管理')) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            // 如果是玩家界面，更新视图
+            if (tabName === 'player') {
+                updatePlayerViews();
+            }
+            
+            // 如果是管理界面，加载数据
+            if (tabName === 'admin') {
+                loadAdminData();
+            }
+        }
+
+        // 复制链接
+        function copyLink() {
+            const linkInput = document.getElementById('roomLink');
+            linkInput.select();
+            document.execCommand('copy');
+            alert('链接已复制到剪贴板！');
+        }
+
+        // 查看角色卡
+        function viewMyCard() {
+            const player = gameData.players.find(p => !p.isHost && p.isJoined);
+            if (player && player.role) {
+                const role = rolePool.find(r => r.name === player.role);
+                if (role) {
+                    document.getElementById('roleName').textContent = role.name;
+                    document.getElementById('roleFaction').textContent = `阵营：${role.faction === 'wolf' ? '狼派' : role.faction === 'dog' ? '狗派' : '中立'}`;
+                    document.getElementById('roleSkill').textContent = `技能：${role.skill}`;
+                    document.getElementById('roleImg').style.background = role.color;
+                    document.getElementById('roleModal').style.display = 'flex';
+                }
+            }
+        }
+
+        // 关闭角色卡
+        function closeRoleModal() {
+            document.getElementById('roleModal').style.display = 'none';
+        }
+
+        // 保存游戏数据
+        function saveGameData() {
+            localStorage.setItem('wolfdog_game_data', JSON.stringify(gameData));
+        }
+
+        // 加载游戏数据
+        function loadSavedData() {
+            const saved = localStorage.getItem('wolfdog_game_data');
+            if (saved) {
+                Object.assign(gameData, JSON.parse(saved));
+                renderHostPlayers();
+                renderPlayerWaiting();
+                
+                // 恢复日志
+                const logDiv = document.getElementById('gameLog');
+                logDiv.innerHTML = '';
+                gameData.log.forEach(msg => {
+                    const entry = document.createElement('div');
+                    entry.textContent = msg;
+                    logDiv.appendChild(entry);
+                });
+            }
+        }
+
+        // 管理界面功能
+        function loadAdminData() {
+            const rolesList = document.getElementById('rolesList');
+            rolesList.innerHTML = '';
+            
+            rolePool.forEach(role => {
+                const roleDiv = document.createElement('div');
+                roleDiv.className = 'setting-item';
+                roleDiv.innerHTML = `
+                    <input type="text" value="${role.name}" onchange="updateRole(${role.id}, 'name', this.value)" style="width:100px;">
+                    <select onchange="updateRole(${role.id}, 'faction', this.value)" style="margin:0 10px;">
+                        <option value="wolf" ${role.faction === 'wolf' ? 'selected' : ''}>狼派</option>
+                        <option value="dog" ${role.faction === 'dog' ? 'selected' : ''}>狗派</option>
+                        <option value="neutral" ${role.faction === 'neutral' ? 'selected' : ''}>中立</option>
+                    </select>
+                    <input type="text" value="${role.skill}" onchange="updateRole(${role.id}, 'skill', this.value)" style="width:300px;">
+                    <input type="color" value="${role.color}" onchange="updateRole(${role.id}, 'color', this.value)" style="width:50px;">
+                `;
+                rolesList.appendChild(roleDiv);
+            });
+        }
+
+        function updateRole(id, field, value) {
+            const role = rolePool.find(r => r.id === id);
+            if (role) {
+                role[field] = value;
+            }
+        }
+
+        function addNewRole() {
+            const newId = Math.max(...rolePool.map(r => r.id)) + 1;
+            rolePool.push({
+                id: newId,
+                name: '新角色',
+                faction: 'wolf',
+                skill: '新技能',
+                color: '#3498db'
+            });
+            loadAdminData();
+        }
+
+        function saveAdminData() {
+            localStorage.setItem('wolfdog_role_pool', JSON.stringify(rolePool));
+            localStorage.setItem('wolfdog_bg_image', document.getElementById('bgImageUrl').value);
+            localStorage.setItem('wolfdog_sound_start', document.getElementById('soundStart').value);
+            alert('管理数据已保存！');
+        }
+
+        // 工具函数
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // 更新房间链接
+        function updateRoomLink() {
+            const baseUrl = window.location.href.split('?')[0];
+            const link = baseUrl + '?room=' + gameData.roomId + '&player=1';
+            document.getElementById('roomLink').value = link;
+        }
+
+        // 页面加载
+        window.onload = function() {
+            init();
+        };
+    </script>
+</body>
+</html>
